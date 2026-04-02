@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # ─── PostgreSQL Database ──────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: smart_locker_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: smart_locker_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis Cache ──────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: smart_locker_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Elasticsearch ────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: smart_locker_elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ─── Logstash ─────────────────────────────────────────────
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.12.0
+    container_name: smart_locker_logstash
+    restart: unless-stopped
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logs:/var/log/smart_locker:ro
+    ports:
+      - "5044:5044"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+
+  # ─── Kibana ───────────────────────────────────────────────
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.12.0
+    container_name: smart_locker_kibana
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  elasticsearch_data:
