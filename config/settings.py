@@ -9,6 +9,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+import dj_database_url
 from decouple import Csv, config
 
 # =============================================================================
@@ -52,6 +53,7 @@ INSTALLED_APPS: list[str] = [
 
 MIDDLEWARE: list[str] = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -84,32 +86,42 @@ WSGI_APPLICATION: str = 'config.wsgi.application'
 # =============================================================================
 # DATABASE
 # =============================================================================
-# Uses SQLite for local development. Switch to PostgreSQL for production
-# by setting DB_ENGINE=django.db.backends.postgresql in .env
+# Render provides a DATABASE_URL environment variable for managed PostgreSQL.
+# Falls back to SQLite for local development.
 
-DB_ENGINE = config('DB_ENGINE', default='django.db.backends.sqlite3')
+DATABASE_URL = config('DATABASE_URL', default='')
 
-if DB_ENGINE == 'django.db.backends.sqlite3':
+if DATABASE_URL:
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
+        'default': dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
 else:
-    DATABASES = {
-        'default': {
-            'ENGINE': DB_ENGINE,
-            'NAME': config('DB_NAME', default='smart_locker_db'),
-            'USER': config('DB_USER', default='postgres'),
-            'PASSWORD': config('DB_PASSWORD', default='postgres'),
-            'HOST': config('DB_HOST', default='localhost'),
-            'PORT': config('DB_PORT', default='5432'),
-            'OPTIONS': {
-                'connect_timeout': 5,
-            },
+    DB_ENGINE = config('DB_ENGINE', default='django.db.backends.sqlite3')
+    if DB_ENGINE == 'django.db.backends.sqlite3':
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
         }
-    }
+    else:
+        DATABASES = {
+            'default': {
+                'ENGINE': DB_ENGINE,
+                'NAME': config('DB_NAME', default='smart_locker_db'),
+                'USER': config('DB_USER', default='postgres'),
+                'PASSWORD': config('DB_PASSWORD', default='postgres'),
+                'HOST': config('DB_HOST', default='localhost'),
+                'PORT': config('DB_PORT', default='5432'),
+                'OPTIONS': {
+                    'connect_timeout': 5,
+                },
+            }
+        }
 
 # =============================================================================
 # CUSTOM USER MODEL
@@ -147,6 +159,7 @@ USE_TZ: bool = True
 
 STATIC_URL: str = 'static/'
 STATIC_ROOT: str = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE: str = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # =============================================================================
 # DEFAULT PRIMARY KEY
@@ -237,6 +250,23 @@ CORS_ALLOWED_ORIGINS: list[str] = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
 ]
+
+# =============================================================================
+# RENDER / PRODUCTION SETTINGS
+# =============================================================================
+
+RENDER_EXTERNAL_HOSTNAME = config('RENDER_EXTERNAL_HOSTNAME', default='')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
 
 # =============================================================================
 # DRF SPECTACULAR (API DOCUMENTATION)
